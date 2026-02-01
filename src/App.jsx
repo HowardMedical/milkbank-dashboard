@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
 import { db, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from './firebase';
 
-const STAGES = ['unknown', 'compatible', 'sampled', 'converted'];
+const STAGES = ['unknown', 'compatible', 'sampled', 'converted', 'lost'];
 const STAGE_LABELS = {
   unknown: '❓ Not Yet Contacted',
   compatible: '💬 In Conversation',
   sampled: '📦 Sampled',
-  converted: '🏆 Converted'
+  converted: '🏆 Converted',
+  lost: '❌ Lost'
 };
 const STAGE_COLORS = {
   unknown: 'bg-gray-100 border-gray-300',
   compatible: 'bg-blue-50 border-blue-300',
   sampled: 'bg-yellow-50 border-yellow-300',
-  converted: 'bg-green-50 border-green-300'
+  converted: 'bg-green-50 border-green-300',
+  lost: 'bg-red-50 border-red-200 opacity-60'
 };
 
 const PASTEURIZER_TYPES = [
@@ -63,20 +65,23 @@ function App() {
     return () => unsubscribe();
   }, []);
 
+  const activeBanks = milkBanks.filter(b => b.stage !== 'lost');
+  
   const stats = {
-    total: milkBanks.length,
-    unknown: milkBanks.filter(b => b.stage === 'unknown').length,
-    compatible: milkBanks.filter(b => b.stage === 'compatible').length,
-    sampled: milkBanks.filter(b => b.stage === 'sampled').length,
-    converted: milkBanks.filter(b => b.stage === 'converted').length,
-    overdue: milkBanks.filter(b => isOverdue(b.nextAction)).length,
+    total: activeBanks.length,
+    unknown: activeBanks.filter(b => b.stage === 'unknown').length,
+    compatible: activeBanks.filter(b => b.stage === 'compatible').length,
+    sampled: activeBanks.filter(b => b.stage === 'sampled').length,
+    converted: activeBanks.filter(b => b.stage === 'converted').length,
+    lost: milkBanks.filter(b => b.stage === 'lost').length,
+    overdue: activeBanks.filter(b => isOverdue(b.nextAction)).length,
   };
 
   // Filter and sort
   let filteredBanks = filter === 'all' 
-    ? milkBanks 
+    ? activeBanks
     : filter === 'overdue'
-    ? milkBanks.filter(b => isOverdue(b.nextAction))
+    ? activeBanks.filter(b => isOverdue(b.nextAction))
     : milkBanks.filter(b => b.stage === filter);
 
   // Search
@@ -173,13 +178,14 @@ function App() {
 
       {/* Stats */}
       <div className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-3 md:grid-cols-7 gap-3 mb-6">
           <StatCard label="Total" value={stats.total} color="bg-gray-600" onClick={() => setFilter('all')} active={filter === 'all'} />
           <StatCard label="Overdue" value={stats.overdue} color="bg-red-500" onClick={() => setFilter('overdue')} active={filter === 'overdue'} />
           <StatCard label="Not Contacted" value={stats.unknown} color="bg-gray-400" onClick={() => setFilter('unknown')} active={filter === 'unknown'} />
           <StatCard label="In Conversation" value={stats.compatible} color="bg-blue-500" onClick={() => setFilter('compatible')} active={filter === 'compatible'} />
           <StatCard label="Sampled" value={stats.sampled} color="bg-yellow-500" onClick={() => setFilter('sampled')} active={filter === 'sampled'} />
           <StatCard label="Converted" value={stats.converted} color="bg-green-500" onClick={() => setFilter('converted')} active={filter === 'converted'} />
+          <StatCard label="Lost" value={stats.lost} color="bg-gray-300" onClick={() => setFilter('lost')} active={filter === 'lost'} />
         </div>
 
         {/* Pipeline Progress */}
@@ -197,14 +203,9 @@ function App() {
             </select>
           </div>
           <div className="flex h-6 rounded-full overflow-hidden bg-gray-200">
-            {stats.converted > 0 && (
-              <div className="bg-green-500 flex items-center justify-center text-white text-xs font-medium" style={{width: `${(stats.converted/28)*100}%`}}>
-                {stats.converted}
-              </div>
-            )}
-            {stats.sampled > 0 && (
-              <div className="bg-yellow-500 flex items-center justify-center text-white text-xs font-medium" style={{width: `${(stats.sampled/28)*100}%`}}>
-                {stats.sampled}
+            {stats.unknown > 0 && (
+              <div className="bg-gray-400 flex items-center justify-center text-white text-xs font-medium" style={{width: `${(stats.unknown/28)*100}%`}}>
+                {stats.unknown}
               </div>
             )}
             {stats.compatible > 0 && (
@@ -212,15 +213,20 @@ function App() {
                 {stats.compatible}
               </div>
             )}
-            {stats.unknown > 0 && (
-              <div className="bg-gray-400 flex items-center justify-center text-white text-xs font-medium" style={{width: `${(stats.unknown/28)*100}%`}}>
-                {stats.unknown}
+            {stats.sampled > 0 && (
+              <div className="bg-yellow-500 flex items-center justify-center text-white text-xs font-medium" style={{width: `${(stats.sampled/28)*100}%`}}>
+                {stats.sampled}
+              </div>
+            )}
+            {stats.converted > 0 && (
+              <div className="bg-green-500 flex items-center justify-center text-white text-xs font-medium" style={{width: `${(stats.converted/28)*100}%`}}>
+                {stats.converted}
               </div>
             )}
           </div>
           <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>{milkBanks.length} / 28 HMBANA Banks Tracked</span>
-            <span>{stats.converted} Converted • {stats.sampled} Sampled • {stats.compatible} In Conversation</span>
+            <span>{activeBanks.length} / 28 HMBANA Banks Tracked</span>
+            <span>{stats.unknown} Not Contacted → {stats.compatible} In Conversation → {stats.sampled} Sampled → {stats.converted} Converted</span>
           </div>
         </div>
 
