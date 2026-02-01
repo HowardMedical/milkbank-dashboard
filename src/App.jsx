@@ -3,8 +3,8 @@ import { db, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query, o
 
 const STAGES = ['unknown', 'compatible', 'sampled', 'converted'];
 const STAGE_LABELS = {
-  unknown: '❓ Unknown',
-  compatible: '✅ Compatible',
+  unknown: '❓ Not Yet Contacted',
+  compatible: '💬 In Conversation',
   sampled: '📦 Sampled',
   converted: '🏆 Converted'
 };
@@ -44,6 +44,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedBank, setSelectedBank] = useState(null);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('nextAction');
@@ -174,8 +176,8 @@ function App() {
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
           <StatCard label="Total" value={stats.total} color="bg-gray-600" onClick={() => setFilter('all')} active={filter === 'all'} />
           <StatCard label="Overdue" value={stats.overdue} color="bg-red-500" onClick={() => setFilter('overdue')} active={filter === 'overdue'} />
-          <StatCard label="Unknown" value={stats.unknown} color="bg-gray-400" onClick={() => setFilter('unknown')} active={filter === 'unknown'} />
-          <StatCard label="Compatible" value={stats.compatible} color="bg-blue-500" onClick={() => setFilter('compatible')} active={filter === 'compatible'} />
+          <StatCard label="Not Contacted" value={stats.unknown} color="bg-gray-400" onClick={() => setFilter('unknown')} active={filter === 'unknown'} />
+          <StatCard label="In Conversation" value={stats.compatible} color="bg-blue-500" onClick={() => setFilter('compatible')} active={filter === 'compatible'} />
           <StatCard label="Sampled" value={stats.sampled} color="bg-yellow-500" onClick={() => setFilter('sampled')} active={filter === 'sampled'} />
           <StatCard label="Converted" value={stats.converted} color="bg-green-500" onClick={() => setFilter('converted')} active={filter === 'converted'} />
         </div>
@@ -218,34 +220,58 @@ function App() {
           </div>
           <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>{milkBanks.length} / 28 HMBANA Banks Tracked</span>
-            <span>{stats.converted} Converted • {stats.sampled} Sampled • {stats.compatible} Compatible</span>
+            <span>{stats.converted} Converted • {stats.sampled} Sampled • {stats.compatible} In Conversation</span>
           </div>
         </div>
 
-        {/* Milk Bank List */}
-        <div className="space-y-3">
+        {/* Milk Bank Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {filteredBanks.map(bank => (
             <MilkBankCard 
               key={bank.id} 
-              bank={bank} 
-              isEditing={editingId === bank.id}
-              onEdit={() => setEditingId(bank.id)}
-              onSave={(data) => updateBank(bank.id, data)}
-              onCancel={() => setEditingId(null)}
-              onDelete={() => deleteBank(bank.id)}
+              bank={bank}
+              onClick={() => {
+                setSelectedBank(bank);
+                setShowDetailModal(true);
+              }}
             />
           ))}
-          {filteredBanks.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
-              {search ? 'No milk banks match your search.' : 'No milk banks in this stage yet.'}
-            </div>
-          )}
         </div>
+        {filteredBanks.length === 0 && (
+          <div className="text-center py-12 text-gray-500">
+            {search ? 'No milk banks match your search.' : 'No milk banks in this stage yet.'}
+          </div>
+        )}
       </div>
 
       {/* Add Form Modal */}
       {showAddForm && (
         <AddMilkBankModal onAdd={addBank} onClose={() => setShowAddForm(false)} />
+      )}
+
+      {/* Detail/Edit Modal */}
+      {showDetailModal && selectedBank && (
+        <MilkBankDetailModal 
+          bank={selectedBank}
+          isEditing={editingId === selectedBank.id}
+          onEdit={() => setEditingId(selectedBank.id)}
+          onSave={(data) => {
+            updateBank(selectedBank.id, data);
+            setShowDetailModal(false);
+            setSelectedBank(null);
+          }}
+          onCancel={() => setEditingId(null)}
+          onDelete={() => {
+            deleteBank(selectedBank.id);
+            setShowDetailModal(false);
+            setSelectedBank(null);
+          }}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedBank(null);
+            setEditingId(null);
+          }}
+        />
       )}
     </div>
   );
@@ -263,7 +289,46 @@ function StatCard({ label, value, color, onClick, active }) {
   );
 }
 
-function MilkBankCard({ bank, isEditing, onEdit, onSave, onCancel, onDelete }) {
+function MilkBankCard({ bank, onClick }) {
+  const overdue = isOverdue(bank.nextAction);
+
+  return (
+    <div 
+      className={`rounded-lg shadow-sm p-3 border cursor-pointer hover:shadow-md hover:scale-105 transition-all ${
+        overdue ? 'border-red-400 bg-red-50' : STAGE_COLORS[bank.stage || 'unknown']
+      }`} 
+      onClick={onClick}
+    >
+      <div className="space-y-2">
+        <div>
+          <h3 className="font-semibold text-sm truncate">{bank.name}</h3>
+          <p className="text-xs text-gray-600 truncate">{bank.location}</p>
+        </div>
+        
+        <div className="flex items-center justify-between gap-1">
+          <span className="text-xs px-2 py-0.5 rounded-full bg-white border whitespace-nowrap truncate">
+            {STAGE_LABELS[bank.stage || 'unknown'].replace(/^[^\s]+\s/, '')}
+          </span>
+          {overdue && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500 text-white whitespace-nowrap">
+              ⚠️
+            </span>
+          )}
+        </div>
+
+        {bank.nextAction && (
+          <div className="text-xs text-gray-500">
+            <span className={overdue ? 'text-red-600 font-medium' : ''}>
+              {formatDate(bank.nextAction)}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MilkBankDetailModal({ bank, isEditing, onEdit, onSave, onCancel, onDelete, onClose }) {
   const [form, setForm] = useState(bank);
   const overdue = isOverdue(bank.nextAction);
 
@@ -282,199 +347,248 @@ function MilkBankCard({ bank, isEditing, onEdit, onSave, onCancel, onDelete }) {
 
   if (isEditing) {
     return (
-      <div className="bg-white rounded-lg shadow-lg p-4 border-2 border-blue-400">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Milk Bank Name</label>
-            <input
-              className="border rounded px-3 py-2 w-full"
-              placeholder="Milk Bank Name"
-              value={form.name || ''}
-              onChange={e => setForm({...form, name: e.target.value})}
-            />
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-3xl my-8">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold">Edit Milk Bank</h2>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
           </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Location</label>
-            <input
-              className="border rounded px-3 py-2 w-full"
-              placeholder="City, State"
-              value={form.location || ''}
-              onChange={e => setForm({...form, location: e.target.value})}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Contact Name</label>
-            <input
-              className="border rounded px-3 py-2 w-full"
-              placeholder="Contact Name"
-              value={form.contact || ''}
-              onChange={e => setForm({...form, contact: e.target.value})}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Email</label>
-            <input
-              className="border rounded px-3 py-2 w-full"
-              placeholder="Email"
-              value={form.email || ''}
-              onChange={e => setForm({...form, email: e.target.value})}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Phone</label>
-            <input
-              className="border rounded px-3 py-2 w-full"
-              placeholder="Phone"
-              value={form.phone || ''}
-              onChange={e => setForm({...form, phone: e.target.value})}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Stage</label>
-            <select
-              className="border rounded px-3 py-2 w-full"
-              value={form.stage || 'unknown'}
-              onChange={e => setForm({...form, stage: e.target.value})}
-            >
-              {STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Pasteurizer Type</label>
-            <select
-              className="border rounded px-3 py-2 w-full"
-              value={form.pasteurizerType || 'Unknown'}
-              onChange={e => setForm({...form, pasteurizerType: e.target.value})}
-            >
-              {PASTEURIZER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Volume Potential (bottles/month)</label>
-            <input
-              className="border rounded px-3 py-2 w-full"
-              type="number"
-              placeholder="e.g. 15000"
-              value={form.volumePotential || ''}
-              onChange={e => setForm({...form, volumePotential: parseInt(e.target.value) || 0})}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Next Action Date</label>
-            <input
-              className="border rounded px-3 py-2 w-full"
-              type="date"
-              value={form.nextAction || ''}
-              onChange={e => setForm({...form, nextAction: e.target.value})}
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Last Contact Date</label>
-            <input
-              className="border rounded px-3 py-2 w-full"
-              type="date"
-              value={form.lastContact || ''}
-              onChange={e => setForm({...form, lastContact: e.target.value})}
-            />
-          </div>
-        </div>
-        
-        <div className="mb-4">
-          <label className="block text-xs text-gray-500 mb-1">Bottle Sizes Needed</label>
-          <div className="flex flex-wrap gap-2">
-            {BOTTLE_SIZES.map(size => (
-              <button
-                key={size}
-                type="button"
-                onClick={() => toggleBottleSize(size)}
-                className={`px-3 py-1 rounded-full text-sm border transition ${
-                  (form.bottleSizes || []).includes(size) 
-                    ? 'bg-blue-500 text-white border-blue-500' 
-                    : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'
-                }`}
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Milk Bank Name</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                placeholder="Milk Bank Name"
+                value={form.name || ''}
+                onChange={e => setForm({...form, name: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Location</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                placeholder="City, State"
+                value={form.location || ''}
+                onChange={e => setForm({...form, location: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Contact Name</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                placeholder="Contact Name"
+                value={form.contact || ''}
+                onChange={e => setForm({...form, contact: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Email</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                placeholder="Email"
+                value={form.email || ''}
+                onChange={e => setForm({...form, email: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Phone</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                placeholder="Phone"
+                value={form.phone || ''}
+                onChange={e => setForm({...form, phone: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Stage</label>
+              <select
+                className="border rounded px-3 py-2 w-full"
+                value={form.stage || 'unknown'}
+                onChange={e => setForm({...form, stage: e.target.value})}
               >
-                {size}
-              </button>
-            ))}
+                {STAGES.map(s => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Pasteurizer Type</label>
+              <select
+                className="border rounded px-3 py-2 w-full"
+                value={form.pasteurizerType || 'Unknown'}
+                onChange={e => setForm({...form, pasteurizerType: e.target.value})}
+              >
+                {PASTEURIZER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Volume Potential (bottles/month)</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                type="number"
+                placeholder="e.g. 15000"
+                value={form.volumePotential || ''}
+                onChange={e => setForm({...form, volumePotential: parseInt(e.target.value) || 0})}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Next Action Date</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                type="date"
+                value={form.nextAction || ''}
+                onChange={e => setForm({...form, nextAction: e.target.value})}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Last Contact Date</label>
+              <input
+                className="border rounded px-3 py-2 w-full"
+                type="date"
+                value={form.lastContact || ''}
+                onChange={e => setForm({...form, lastContact: e.target.value})}
+              />
+            </div>
           </div>
-        </div>
+          
+          <div className="mb-4">
+            <label className="block text-xs text-gray-500 mb-1">Bottle Sizes Needed</label>
+            <div className="flex flex-wrap gap-2">
+              {BOTTLE_SIZES.map(size => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => toggleBottleSize(size)}
+                  className={`px-3 py-1 rounded-full text-sm border transition ${
+                    (form.bottleSizes || []).includes(size) 
+                      ? 'bg-blue-500 text-white border-blue-500' 
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+            </div>
+          </div>
 
-        <div className="mb-4">
-          <label className="block text-xs text-gray-500 mb-1">Notes</label>
-          <textarea
-            className="border rounded px-3 py-2 w-full"
-            rows={3}
-            placeholder="Notes..."
-            value={form.notes || ''}
-            onChange={e => setForm({...form, notes: e.target.value})}
-          />
-        </div>
-        
-        <div className="flex justify-between">
-          <button onClick={onDelete} className="text-red-600 hover:text-red-800 text-sm">🗑 Delete</button>
-          <div className="space-x-2">
-            <button onClick={onCancel} className="px-4 py-2 border rounded hover:bg-gray-50">Cancel</button>
-            <button onClick={() => onSave(form)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Save</button>
+          <div className="mb-4">
+            <label className="block text-xs text-gray-500 mb-1">Notes</label>
+            <textarea
+              className="border rounded px-3 py-2 w-full"
+              rows={3}
+              placeholder="Notes..."
+              value={form.notes || ''}
+              onChange={e => setForm({...form, notes: e.target.value})}
+            />
+          </div>
+          
+          <div className="flex justify-between">
+            <button onClick={onDelete} className="text-red-600 hover:text-red-800 text-sm font-medium">🗑 Delete</button>
+            <div className="space-x-2">
+              <button onClick={onCancel} className="px-4 py-2 border rounded hover:bg-gray-50">Cancel</button>
+              <button onClick={() => onSave(form)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Save</button>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  // View mode
   return (
-    <div 
-      className={`rounded-lg shadow p-4 border-2 cursor-pointer hover:shadow-md transition ${
-        overdue ? 'border-red-400 bg-red-50' : STAGE_COLORS[bank.stage || 'unknown']
-      }`} 
-      onClick={onEdit}
-    >
-      <div className="flex justify-between items-start gap-4">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-lg">{bank.name}</h3>
-            <span className="text-xs px-2 py-1 rounded-full bg-white border whitespace-nowrap">
-              {STAGE_LABELS[bank.stage || 'unknown']}
-            </span>
-            {overdue && (
-              <span className="text-xs px-2 py-1 rounded-full bg-red-500 text-white whitespace-nowrap">
-                ⚠️ Overdue
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl my-8">
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              <h2 className="text-2xl font-bold">{bank.name}</h2>
+              <span className="text-sm px-3 py-1 rounded-full bg-white border">
+                {STAGE_LABELS[bank.stage || 'unknown']}
               </span>
-            )}
+              {overdue && (
+                <span className="text-sm px-3 py-1 rounded-full bg-red-500 text-white">
+                  ⚠️ Overdue
+                </span>
+              )}
+            </div>
+            <p className="text-gray-600">{bank.location}</p>
           </div>
-          <p className="text-sm text-gray-600">{bank.location}</p>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+
+        <div className="space-y-4">
           {bank.contact && (
-            <p className="text-sm text-gray-500">
-              👤 {bank.contact} 
-              {bank.email && <span className="text-blue-600 ml-1">({bank.email})</span>}
-            </p>
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Contact</div>
+              <div className="text-sm">
+                <div className="font-medium">{bank.contact}</div>
+                {bank.email && <div className="text-blue-600">{bank.email}</div>}
+                {bank.phone && <div className="text-gray-600">{bank.phone}</div>}
+              </div>
+            </div>
           )}
-          <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
+
+          <div className="grid grid-cols-2 gap-4">
             {bank.pasteurizerType && bank.pasteurizerType !== 'Unknown' && (
-              <span className="bg-gray-100 px-2 py-0.5 rounded">🔧 {bank.pasteurizerType}</span>
+              <div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Pasteurizer</div>
+                <div className="text-sm font-medium">{bank.pasteurizerType}</div>
+              </div>
             )}
             {bank.volumePotential > 0 && (
-              <span className="bg-gray-100 px-2 py-0.5 rounded">📦 {bank.volumePotential.toLocaleString()}/mo</span>
-            )}
-            {bank.bottleSizes?.length > 0 && (
-              <span className="bg-gray-100 px-2 py-0.5 rounded">🍼 {bank.bottleSizes.join(', ')}</span>
-            )}
-            {bank.lastContact && (
-              <span className="bg-gray-100 px-2 py-0.5 rounded">📅 Last: {formatDate(bank.lastContact)}</span>
+              <div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Volume Potential</div>
+                <div className="text-sm font-medium">{bank.volumePotential.toLocaleString()} bottles/month</div>
+              </div>
             )}
           </div>
-        </div>
-        {bank.nextAction && (
-          <div className="text-right shrink-0">
-            <div className="text-xs text-gray-500">Next Action</div>
-            <div className={`text-sm font-medium ${overdue ? 'text-red-600' : ''}`}>
-              {formatDate(bank.nextAction)}
+
+          {bank.bottleSizes?.length > 0 && (
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Bottle Sizes</div>
+              <div className="flex flex-wrap gap-2">
+                {bank.bottleSizes.map(size => (
+                  <span key={size} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
+                    {size}
+                  </span>
+                ))}
+              </div>
             </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            {bank.lastContact && (
+              <div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Last Contact</div>
+                <div className="text-sm font-medium">{formatDate(bank.lastContact)}</div>
+              </div>
+            )}
+            {bank.nextAction && (
+              <div>
+                <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Next Action</div>
+                <div className={`text-sm font-medium ${overdue ? 'text-red-600' : ''}`}>
+                  {formatDate(bank.nextAction)}
+                </div>
+              </div>
+            )}
           </div>
-        )}
+
+          {bank.notes && (
+            <div>
+              <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">Notes</div>
+              <div className="text-sm text-gray-700 whitespace-pre-wrap">{bank.notes}</div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 pt-4 border-t flex justify-end">
+          <button 
+            onClick={onEdit}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Edit
+          </button>
+        </div>
       </div>
-      {bank.notes && (
-        <p className="mt-2 text-sm text-gray-600 border-t pt-2 line-clamp-2">{bank.notes}</p>
-      )}
     </div>
   );
 }
